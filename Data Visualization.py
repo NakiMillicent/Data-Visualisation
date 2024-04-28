@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from wordcloud import WordCloud
+import sqlite3
 
 ## Read the dataset (csv file) from Kaggle
 url = 'https://drive.google.com/file/d/1W4_6_Et46AUFy9kQoCsFv480Yg2_FVqK/view?usp=sharing'
@@ -273,3 +274,95 @@ plt.ylabel('Alerts/Warnings')
 # Proper layout to avoid overlapping
 plt.tight_layout()
 plt.show()
+
+df = pd.read_csv(url)
+df['Timestamp'] = pd.to_datetime(df['Timestamp'])
+
+# Connect to the SQLite database and write the data
+conn = sqlite3.connect('cybersecurity_attacks.db')
+df.to_sql('attacks', conn, if_exists='replace', index=False)
+
+# Query to calculate the weekly average for numerical columns
+numerical_columns = df.select_dtypes(include=[np.number]).columns.tolist()
+query_avg = "SELECT strftime('%Y-%W', Timestamp) as Week,"
+query_avg += ", ".join([f"AVG(\"{col}\") as Avg_{col.replace(' ', '_')}" for col in numerical_columns])
+query_avg += " FROM attacks GROUP BY Week ORDER BY Week;"
+weekly_avg_df = pd.read_sql_query(query_avg, conn)
+
+# Query to calculate the count of actions by attack type per week
+query_counts = """
+SELECT 
+    strftime('%Y-%W', Timestamp) as Week,
+    "Attack Type",
+    "Action Taken",
+    COUNT(*) as Count
+FROM 
+    attacks
+GROUP BY 
+    Week, "Attack Type", "Action Taken"
+ORDER BY 
+    Week, "Attack Type", "Action Taken";
+"""
+weekly_counts_df = pd.read_sql_query(query_counts, conn)
+
+# Query to calculate the weekly average 'Anomaly Scores' for each 'Severity Level'
+query_severity = """
+SELECT 
+    strftime('%Y-%W', Timestamp) as Week,
+    "Severity Level",
+    AVG("Anomaly Scores") as Avg_Anomaly_Scores
+FROM 
+    attacks
+GROUP BY 
+    Week, "Severity Level";
+"""
+weekly_severity_avg_df = pd.read_sql_query(query_severity, conn)
+
+# Close the SQLite connection
+conn.close()
+
+# Plotting functions
+def plot_scatter_matrix(df_subset, title):
+    fig, ax = plt.subplots(figsize=(12, 12))  # Create a figure and a grid of subplots
+    pd.plotting.scatter_matrix(df_subset, alpha=0.2, ax=ax, diagonal='kde')
+    fig.suptitle(title, fontsize=16)  # Add a main title to the figure
+
+def plot_stacked_bar(df, week_column, sub_category):
+    pivot_table = df.pivot_table(index=week_column, columns=sub_category, values='Count', aggfunc='sum', fill_value=0)
+    pivot_table.plot(kind='bar', stacked=True, figsize=(20, 6))
+    plt.title(f'Stacked Bar Chart of {sub_category} over Weeks')
+    plt.ylabel('Count')
+    plt.xlabel('Week')
+    plt.xticks(rotation=90)
+    plt.tight_layout()
+    plt.show()
+
+def plot_violin(df, category, avg_numeric):
+    plt.figure(figsize=(12, 6))
+    sns.violinplot(x=category, y=avg_numeric, data=df, palette="muted", inner=None)  # Set inner=None to remove the bars inside the violins
+    sns.swarmplot(x=category, y=avg_numeric, data=df, color='k', alpha=0.6)  # Add a swarmplot to show individual points
+    avg_numeric = avg_numeric.replace('_', ' ')
+    plt.title(f'Violin Plot of Weekly {avg_numeric} by {category} with Outliers')
+    plt.show()
+
+
+def plot_area_chart(df, week_column, avg_column):
+    df[week_column] = pd.to_datetime(df[week_column] + '-0', format='%Y-%W-%w')
+    df.set_index(week_column, inplace=True)
+    df[avg_column].plot.area(alpha=0.4)
+    avg_column = avg_column.replace('_', ' ')
+    plt.title(f'Area Chart of {avg_column} over Time')
+    plt.ylabel(avg_column)
+    plt.xlabel('Date')
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
+# Call plotting functions
+plot_scatter_matrix(weekly_avg_df.drop('Week', axis=1), "Weekly Average Metrics Scatter Matrix")
+plot_stacked_bar(weekly_counts_df, 'Week', 'Action Taken')
+plot_area_chart(weekly_avg_df[['Week', 'Avg_Anomaly_Scores']], 'Week', 'Avg_Anomaly_Scores')
+# Ensure the 'Avg_Anomaly_Scores' column is of type float for the violin plot
+weekly_severity_avg_df['Avg_Anomaly_Scores'] = weekly_severity_avg_df['Avg_Anomaly_Scores'].astype(float)
+# Call the plotting function for the aggregated weekly average data
+plot_violin(weekly_severity_avg_df, 'Severity Level', 'Avg_Anomaly_Scores')
