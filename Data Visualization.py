@@ -135,7 +135,7 @@ plt.show()
 # Converting the Timestamp column to Pandas datetime series.
 df['Timestamp'] = pd. to_datetime(df['Timestamp'])
 # Resample the data by month and count the number of attacks per month
-monthly_attacks = df.resample(rule='ME', on='Timestamp')['Attack Type'].count()
+monthly_attacks = df.resample(rule='M', on='Timestamp')['Attack Type'].count()
 
 # Plot the number of attacks by month
 monthly_attacks.plot(color='orange', figsize=(10, 6))
@@ -226,7 +226,7 @@ plt.show()
 
 # Visualisation: Line Plot
 # Resample data to get the monthly count of alerts/warnings for each attack type
-alerts_over_time = df.resample('ME', on="Timestamp")["Attack Type"].value_counts().unstack(fill_value=0)
+alerts_over_time = df.resample('M', on="Timestamp")["Attack Type"].value_counts().unstack(fill_value=0)
 
 # Create a line plot for each attack type with monthly resampling
 alerts_over_time.plot(kind='line', figsize=(12, 6), lw=2)
